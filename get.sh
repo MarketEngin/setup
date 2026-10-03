@@ -393,6 +393,7 @@ if [[ "$has_quant" == "1" ]]; then
   log "Installing systemd unit templates…"
   quant_install_unit_templates "$SETUP_ROOT/systemd"
   quant_migrate_legacy_units
+  quant_seed_empty_quant_yml "$PREFIX" "$DATA_DIR"
 fi
 
 VERSION_STR="$(printf '%s\n' "${COMPONENT_SPECS[@]}" | sed 's/^[^=]*=//' | awk 'NF{printf "%s%s", (n++?",":""), $0} END{print ""}')"

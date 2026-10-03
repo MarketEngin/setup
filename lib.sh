@@ -750,6 +750,32 @@ quant_ensure_user_and_dirs() {
   mkdir -p "$prefix/bin" "$prefix/config" "$data_dir/capture" "$data_dir/sessions"
 }
 
+# Seed a minimal empty compose if missing (never overwrite).
+#   version: 1
+#   data_dir: <DATA_DIR>
+#   instances:
+quant_seed_empty_quant_yml() {
+  local prefix="$1" data_dir="$2"
+  local dest="$prefix/config/quant.yml"
+  if [[ -f "$dest" ]]; then
+    quant_log "keeping existing $dest"
+    return 0
+  fi
+  if [[ "${DRY_RUN:-0}" == "1" ]]; then
+    quant_log "DRY-RUN seed empty $dest"
+    return 0
+  fi
+  mkdir -p "$prefix/config"
+  cat >"$dest" <<EOF
+version: 1
+data_dir: $data_dir
+
+instances:
+EOF
+  chmod 640 "$dest" 2>/dev/null || chmod 644 "$dest"
+  quant_log "wrote empty $dest"
+}
+
 quant_install_unit_templates() {
   local unit_src="$1"
   if [[ "${DRY_RUN:-0}" == "1" ]]; then

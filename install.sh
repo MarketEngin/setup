@@ -376,25 +376,8 @@ fi
 if has_component quant; then
   if [[ -f "$CONFIG_SRC/quant.example.yml" ]]; then
     install_example quant.example.yml
-    if [[ ! -f "$PREFIX/config/quant.yml" ]]; then
-      if [[ "$DRY_RUN" == "1" ]]; then
-        quant_log "DRY-RUN seed quant.yml"
-      else
-        # Rewrite paths toward PREFIX
-        sed \
-          -e "s|data_dir:.*|data_dir: $DATA_DIR|" \
-          -e "s|config: configs/tape-capture.toml|config: $PREFIX/config/tape-capture.toml|" \
-          -e "s|config: configs/tape-sessionizer.toml|config: $PREFIX/config/tape-sessionizer.toml|" \
-          -e "s|# bin: /opt/quant/bin/tape-capture|bin: $PREFIX/bin/tape-capture|" \
-          -e "s|# bin: /opt/quant/bin/tape-sessionizer|bin: $PREFIX/bin/tape-sessionizer|" \
-          "$CONFIG_SRC/quant.example.yml" >"$PREFIX/config/quant.yml"
-        chmod 640 "$PREFIX/config/quant.yml"
-        quant_log "wrote $PREFIX/config/quant.yml"
-      fi
-    else
-      quant_log "keeping existing $PREFIX/config/quant.yml"
-    fi
   fi
+  quant_seed_empty_quant_yml "$PREFIX" "$DATA_DIR"
   quant_install_unit_templates "$TEMPLATE_SRC"
   quant_migrate_legacy_units
 fi
