@@ -11,30 +11,38 @@ Release binaries: [MarketEngin/MarketEngin](https://github.com/MarketEngin/Marke
 
 ## Quick install (recommended)
 
-One command — interactive wizard (mode, channel, components, token):
+**Do not** pipe into `sudo` (`curl | sudo bash` hangs — sudo reads the script
+as the password). Pipe into `bash`; the script re-runs itself with `sudo`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh | bash
 ```
 
 With a GitHub token for private releases:
 
 ```bash
 export QUANT_GITHUB_TOKEN=ghp_…
-curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh | sudo -E bash
+curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh | bash
+```
+
+Safe alternative (file on disk):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh -o /tmp/me-get.sh
+sudo -E bash /tmp/me-get.sh
 ```
 
 Non-interactive (CI / scripts):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh \
-  | sudo -E bash -s -- --components all --channel stable --yes
+  | bash -s -- --components all --channel stable --yes
 ```
 
 ```bash
 # Upgrade only newer tags
 curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh \
-  | sudo -E bash -s -- --upgrade --components all --channel stable --yes
+  | bash -s -- --upgrade --components all --channel stable --yes
 ```
 
 `get.sh` walks you through install / upgrade / uninstall, then downloads this

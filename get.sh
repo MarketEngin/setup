@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# MarketEngin setup — professional bootstrap + interactive wizard.
+# MarketEngin setup — interactive bootstrap.
 #
-#   curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh | sudo bash
-#   curl -fsSL …/get.sh | sudo -E bash -s -- --components all --channel stable
+# CORRECT (script elevates itself — do NOT pipe into sudo):
+#   curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh | bash
+#
+# Non-interactive:
+#   curl -fsSL …/get.sh | bash -s -- --components all --channel stable --yes
 #
 set -euo pipefail
+
+# Immediate feedback (before anything that can hang).
+printf 'MarketEngin setup — starting…\n' >&2
 
 : "${QUANT_SETUP_URL:=https://github.com/MarketEngin/setup}"
 : "${QUANT_SETUP_REF:=main}"
@@ -12,13 +18,38 @@ set -euo pipefail
 : "${QUANT_GITHUB_TOKEN:=${GITHUB_TOKEN:-}}"
 
 VERSION_UI="1.0"
+SELF_RAW_URL="https://raw.githubusercontent.com/MarketEngin/setup/${QUANT_SETUP_REF}/get.sh"
 
-# ── tty / colors ────────────────────────────────────────────────────────────
-# When piped (curl|bash), stdin is the script — prompt via /dev/tty when present.
+# ── self-elevate (never: curl | sudo bash — sudo steals the pipe as password) ─
+if [[ "$(uname -s)" == "Linux" && "$(id -u)" -ne 0 ]]; then
+  printf 'Need root privileges. Re-running with sudo (password prompt on your terminal)…\n' >&2
+  TMP_SELF="$(mktemp /tmp/marketengin-get.XXXXXX)"
+  # Prefer re-download to a file so sudo has a real path (stdin is the script pipe).
+  if command -v curl >/dev/null 2>&1 && curl -fsSL --connect-timeout 15 --max-time 120 \
+      "$SELF_RAW_URL" -o "$TMP_SELF"; then
+    chmod 700 "$TMP_SELF"
+    export QUANT_SETUP_URL QUANT_SETUP_REF QUANT_GIT_URL QUANT_GITHUB_TOKEN GITHUB_TOKEN
+    exec sudo -E bash "$TMP_SELF" "$@"
+  fi
+  # Fallback: copy from BASH_SOURCE if we were invoked as a file
+  if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" && "${BASH_SOURCE[0]}" != "bash" ]]; then
+    exec sudo -E bash "${BASH_SOURCE[0]}" "$@"
+  fi
+  printf 'ERROR: could not re-download get.sh for sudo. Try:\n' >&2
+  printf '  curl -fsSL %s -o /tmp/me-get.sh && sudo -E bash /tmp/me-get.sh\n' "$SELF_RAW_URL" >&2
+  exit 1
+fi
+
+# Warn if someone still used curl|sudo bash (stdin is pipe, no tty for wizard).
+if [[ -p /dev/stdin ]] || [[ ! -t 0 && ! -c /dev/tty ]]; then
+  :
+fi
+
+# Attach interactive stdin from the real terminal when piped.
 { [[ -c /dev/tty ]] && exec </dev/tty; } 2>/dev/null || true
 
 USE_COLOR=0
-if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+if [[ -t 2 && -z "${NO_COLOR:-}" ]]; then
   USE_COLOR=1
 fi
 if [[ "$USE_COLOR" == "1" ]]; then
@@ -29,10 +60,9 @@ if [[ "$USE_COLOR" == "1" ]]; then
   C_GREEN=$'\033[32m'
   C_YELLOW=$'\033[33m'
   C_RED=$'\033[31m'
-  C_BLUE=$'\033[34m'
   C_MAG=$'\033[35m'
 else
-  C_RESET= C_DIM= C_BOLD= C_CYAN= C_GREEN= C_YELLOW= C_RED= C_BLUE= C_MAG=
+  C_RESET= C_DIM= C_BOLD= C_CYAN= C_GREEN= C_YELLOW= C_RED= C_MAG=
 fi
 
 log()  { printf '%s%s%s %s\n' "$C_CYAN" "◆" "$C_RESET" "$*" >&2; }
@@ -43,7 +73,6 @@ die()  { err "$*"; exit 1; }
 step() { printf '\n%s[%s/%s]%s %s%s%s\n' "$C_DIM" "$1" "$2" "$C_RESET" "$C_BOLD" "$3" "$C_RESET" >&2; }
 
 ask() {
-  # ask PROMPT DEFAULT → echoes answer
   local prompt="$1" default="${2:-}" ans
   if [[ -n "$default" ]]; then
     read -r -p "$(printf '%s? %s[%s]%s: ' "$prompt" "$C_DIM" "$default" "$C_RESET")" ans || true
@@ -62,8 +91,7 @@ ask_secret() {
 }
 
 confirm() {
-  local prompt="$1" default="${2:-y}" ans
-  local hint="Y/n"
+  local prompt="$1" default="${2:-y}" ans hint="Y/n"
   [[ "$default" == "n" ]] && hint="y/N"
   read -r -p "$(printf '%s %s(%s)%s: ' "$prompt" "$C_DIM" "$hint" "$C_RESET")" ans || true
   ans="$(echo "${ans:-$default}" | tr '[:upper:]' '[:lower:]')"
@@ -90,12 +118,13 @@ usage() {
   cat <<'EOF'
 MarketEngin setup (get.sh)
 
-Usage:
-  curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh | sudo bash
-  curl -fsSL …/get.sh | sudo -E bash -s -- [options]
+Usage (do NOT pipe into sudo — the script elevates itself):
+  curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh | bash
 
-Interactive (default): wizard asks mode, channel, components, token.
-Non-interactive: pass flags and the wizard is skipped.
+  curl -fsSL …/get.sh | bash -s -- --components all --channel stable --yes
+
+  # Alternative if pipe is awkward:
+  curl -fsSL …/get.sh -o /tmp/me-get.sh && sudo -E bash /tmp/me-get.sh
 
 Options:
   --components LIST   capture,sessionizer,quant,lens,verify or all
@@ -103,20 +132,18 @@ Options:
   --upgrade           only install newer tags
   --uninstall         run uninstall instead of install
   --prefix DIR        install prefix (default /opt/quant)
+  --data-dir DIR
   --yes               skip final confirmation
-  --dry-run           plan only (passed to install.sh)
+  --dry-run
   -h, --help
 
-Env:
-  QUANT_GITHUB_TOKEN / GITHUB_TOKEN   private MarketEngin releases
-  QUANT_SETUP_URL QUANT_SETUP_REF QUANT_GIT_URL PREFIX DATA_DIR
+Env: QUANT_GITHUB_TOKEN QUANT_GIT_URL QUANT_SETUP_URL QUANT_SETUP_REF
 EOF
 }
 
-# ── args ────────────────────────────────────────────────────────────────────
 COMPONENTS_RAW=""
 CHANNEL=""
-MODE="install"   # install | upgrade | uninstall
+MODE="install"
 YES=0
 DRY_RUN=0
 PREFIX="${PREFIX:-/opt/quant}"
@@ -139,20 +166,17 @@ while [[ $# -gt 0 ]]; do
 done
 
 INTERACTIVE=1
-if [[ -n "$COMPONENTS_RAW" || "$MODE" == "uninstall" && "$YES" == "1" ]]; then
-  # components given → non-interactive install path; uninstall still can be flagged
-  :
+[[ -n "$COMPONENTS_RAW" ]] && INTERACTIVE=0
+
+HAVE_TTY=0
+if [[ -t 0 ]] || [[ -c /dev/tty ]]; then
+  HAVE_TTY=1
 fi
-# Skip wizard only when components explicitly provided (or --yes uninstall with no pick needed)
-if [[ -n "$COMPONENTS_RAW" ]]; then
+if [[ "$HAVE_TTY" != "1" ]]; then
   INTERACTIVE=0
-fi
-if [[ ! -t 0 ]]; then
-  # no tty after exec — force non-interactive requirements
   if [[ -z "$COMPONENTS_RAW" && "$MODE" != "uninstall" ]]; then
-    die "no TTY: pass --components LIST|all (or run without piping stdin away from /dev/tty)"
+    die "no terminal for prompts. Use:  curl …/get.sh | bash -s -- --components all --yes"
   fi
-  INTERACTIVE=0
 fi
 
 command -v curl >/dev/null 2>&1 || die "curl is required"
@@ -160,7 +184,6 @@ command -v tar >/dev/null 2>&1 || die "tar is required"
 
 banner
 
-# ── wizard ──────────────────────────────────────────────────────────────────
 if [[ "$INTERACTIVE" == "1" ]]; then
   TOTAL=5
   step 1 "$TOTAL" "What do you want to do?"
@@ -208,22 +231,19 @@ if [[ "$INTERACTIVE" == "1" ]]; then
       done
     fi
     [[ ${#COMPS[@]} -gt 0 ]] || die "nothing selected"
-    # unique
     COMPONENTS_RAW="$(printf '%s\n' "${COMPS[@]}" | awk 'NF && !seen[$0]++ { printf "%s%s", (n++?",":""), $0 } END{print ""}')"
     ok "components → $COMPONENTS_RAW"
   else
-    step 2 "$TOTAL" "Uninstall target"
-    echo "  Leave empty for interactive uninstall picker after bootstrap." >&2
+    step 2 "$TOTAL" "Uninstall"
+    echo "  Leave blank for interactive picker after bootstrap." >&2
     sel="$(ask "Components (or blank)" "")"
-    if [[ -n "$sel" ]]; then
-      COMPONENTS_RAW="$sel"
-    fi
+    [[ -n "$sel" ]] && COMPONENTS_RAW="$sel"
     CHANNEL="${CHANNEL:-stable}"
   fi
 
   step 4 "$TOTAL" "GitHub access"
-  echo "  Releases are fetched from ${C_BOLD}MarketEngin/MarketEngin${C_RESET}." >&2
-  echo "  ${C_DIM}Private repo → PAT with Contents read. Leave blank if public.${C_RESET}" >&2
+  echo "  Releases from ${C_BOLD}MarketEngin/MarketEngin${C_RESET}." >&2
+  echo "  ${C_DIM}Private → PAT (Contents read). Blank if public.${C_RESET}" >&2
   if [[ -n "${QUANT_GITHUB_TOKEN:-}" ]]; then
     ok "token already set in environment"
   else
@@ -243,21 +263,17 @@ if [[ "$INTERACTIVE" == "1" ]]; then
   ok "prefix=$PREFIX  data=$DATA_DIR"
 else
   CHANNEL="${CHANNEL:-stable}"
-  [[ -n "$COMPONENTS_RAW" || "$MODE" == "uninstall" ]] || die "--components required in non-interactive mode"
+  [[ -n "$COMPONENTS_RAW" || "$MODE" == "uninstall" ]] || die "--components required"
 fi
 
-# ── summary / confirm ───────────────────────────────────────────────────────
 echo >&2
 printf '%s──────────────────────────────────────────────────────────%s\n' "$C_DIM" "$C_RESET" >&2
 printf '%s Summary%s\n' "$C_BOLD" "$C_RESET" >&2
 printf '  mode        %s%s%s\n' "$C_MAG" "$MODE" "$C_RESET" >&2
-if [[ "$MODE" != "uninstall" ]]; then
-  printf '  channel     %s\n' "$CHANNEL" >&2
-fi
+[[ "$MODE" != "uninstall" ]] && printf '  channel     %s\n' "$CHANNEL" >&2
 printf '  components  %s\n' "${COMPONENTS_RAW:-"(interactive uninstall)"}" >&2
 printf '  prefix      %s\n' "$PREFIX" >&2
 printf '  data        %s\n' "$DATA_DIR" >&2
-printf '  releases    %s\n' "$QUANT_GIT_URL" >&2
 printf '  token       %s\n' "$([[ -n "${QUANT_GITHUB_TOKEN:-}" ]] && echo yes || echo no)" >&2
 printf '%s──────────────────────────────────────────────────────────%s\n' "$C_DIM" "$C_RESET" >&2
 
@@ -288,9 +304,14 @@ if [[ -n "${QUANT_GITHUB_TOKEN:-}" ]]; then
 fi
 
 ARCHIVE_URL="https://codeload.github.com/${owner_repo}/tar.gz/refs/heads/${QUANT_SETUP_REF}"
-log "fetching installer ${owner_repo}@${QUANT_SETUP_REF}"
-curl -fsSL "${HDR[@]}" -o "$ARCHIVE" "$ARCHIVE_URL" \
-  || die "failed to download $ARCHIVE_URL"
+log "downloading installer ${owner_repo}@${QUANT_SETUP_REF} …"
+# --progress-bar on stderr so the user sees activity
+if ! curl -fL --connect-timeout 15 --max-time 180 --progress-bar \
+    "${HDR[@]}" -o "$ARCHIVE" "$ARCHIVE_URL"; then
+  die "failed to download $ARCHIVE_URL"
+fi
+ok "download complete ($(wc -c <"$ARCHIVE" | tr -d ' ') bytes)"
+
 tar -xzf "$ARCHIVE" -C "$EXTRACT"
 ROOT="$(find "$EXTRACT" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 [[ -n "$ROOT" && -f "$ROOT/install.sh" && -f "$ROOT/lib.sh" ]] \
@@ -301,12 +322,10 @@ ok "installer ready"
 export QUANT_GIT_URL QUANT_GITHUB_TOKEN QUANT_SETUP_URL QUANT_SETUP_REF
 export PREFIX DATA_DIR GITHUB_TOKEN="${QUANT_GITHUB_TOKEN:-}"
 
-# ── run ─────────────────────────────────────────────────────────────────────
 if [[ "$MODE" == "uninstall" ]]; then
   args=()
   [[ -n "$COMPONENTS_RAW" ]] && args+=(--components "$COMPONENTS_RAW")
   log "starting uninstall…"
-  # uninstall prompts on TTY for picker when --components omitted
   exec "$ROOT/uninstall.sh" "${args[@]}"
 fi
 
