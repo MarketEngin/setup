@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Unified quant stack installer / upgrader.
+# Non-interactive / CI installer (shares lib.sh with get.sh).
 #
-#   curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh | sudo bash -s -- --components all
+# Interactive: curl -fsSL …/get.sh | bash
+# Never: curl … | sudo bash
 #
 # Per-app GitHub Releases on MarketEngin/MarketEngin:
 #   tag   {bin}-vX.Y.Z  |  {bin}-vX.Y.Z-devN
@@ -139,6 +140,8 @@ VERSION_STR=""
 SOURCE_EXTRA=""
 # Populated as "comp=tag" for manifest
 COMPONENT_SPECS=()
+# Set when resolve_git already placed binaries into PREFIX (skip STAGE_BIN loop)
+GIT_BINS_PLACED=0
 
 resolve_git() {
   quant_log "listing tags from $QUANT_GIT_URL"
@@ -146,47 +149,41 @@ resolve_git() {
   tags="$(quant_list_remote_tags "$QUANT_GIT_URL")" \
     || quant_die "failed to list tags from $QUANT_GIT_URL"
 
+  local -a plan_lines=()
+  local line c action installed latest
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && plan_lines+=("$line")
+  done < <(quant_emit_install_plan "$CHANNEL" "$UPGRADE" "$PREFIX" "$tags" "${COMPONENTS[@]}")
+
   local -a to_install=()
   local -a plan_tags=()
-  local c bin latest installed archive extract_dir bin_dir checkout
-
-  for c in "${COMPONENTS[@]}"; do
-    bin="$(quant_bin_for_component "$c")"
-    latest="$(printf '%s\n' "$tags" | quant_pick_latest_tag "$CHANNEL" "$bin")" \
-      || quant_die "no $CHANNEL tags for $bin (want ${bin}-vX.Y.Z or ${bin}-vX.Y.Z-devN)"
-
-    if [[ "$UPGRADE" == "1" ]]; then
-      installed="$(quant_read_installed_component_tag "$PREFIX" "$c" 2>/dev/null || true)"
-      if [[ -n "$installed" ]]; then
-        if ! quant_tag_matches_channel "$installed" "$CHANNEL" "$bin"; then
-          quant_log "$c: installed $installed is other channel → will install $latest"
-        elif ! quant_version_gt "$latest" "$installed"; then
-          quant_log "$c: already up to date ($installed)"
-          COMPONENT_SPECS+=("${c}=${installed}")
-          continue
-        else
-          quant_log "$c: upgrade $installed → $latest"
-        fi
-      else
-        quant_log "$c: not installed → $latest"
-      fi
-    else
-      quant_log "$c: latest $CHANNEL → $latest"
-    fi
-
-    to_install+=("$c")
-    plan_tags+=("$latest")
-    COMPONENT_SPECS+=("${c}=${latest}")
+  for line in "${plan_lines[@]}"; do
+    IFS='|' read -r c action installed latest <<<"$line"
+    case "$action" in
+      skip)
+        quant_log "$c: already up to date ($installed)"
+        COMPONENT_SPECS+=("${c}=${installed}")
+        ;;
+      upgrade)
+        quant_log "$c: upgrade $installed → $latest"
+        to_install+=("$c")
+        plan_tags+=("$latest")
+        COMPONENT_SPECS+=("${c}=${latest}")
+        ;;
+      install)
+        quant_log "$c: will install $latest"
+        to_install+=("$c")
+        plan_tags+=("$latest")
+        COMPONENT_SPECS+=("${c}=${latest}")
+        ;;
+    esac
   done
 
   if [[ ${#to_install[@]} -eq 0 ]]; then
     quant_log "No newer $CHANNEL versions for selected components"
     VERSION_STR="$(quant_read_installed_version "$PREFIX" 2>/dev/null || echo up-to-date)"
     SOURCE_EXTRA="noop@$CHANNEL"
-    if [[ "$DRY_RUN" == "1" ]]; then
-      return 0
-    fi
-    # Still refresh manifest timestamps for kept components
+    GIT_BINS_PLACED=1
     return 0
   fi
 
@@ -198,29 +195,13 @@ resolve_git() {
     return 0
   fi
 
-  local i=0
+  local i=0 total="${#to_install[@]}"
   for c in "${to_install[@]}"; do
     latest="${plan_tags[$i]}"
     i=$((i + 1))
-    bin="$(quant_bin_for_component "$c")"
-    mkdir -p "$WORKDIR/fetch/$bin" "$WORKDIR/extract/$bin"
-
-    if archive="$(quant_fetch_release_asset "$latest" "$WORKDIR/fetch/$bin")"; then
-      quant_extract_archive "$archive" "$WORKDIR/extract/$bin"
-      bin_dir="$(quant_find_bin_dir "$WORKDIR/extract/$bin" "$bin")" \
-        || quant_die "archive for $latest missing binary $bin"
-      quant_stage_bins_from_dir "$bin_dir" "$STAGE_BIN" "$c"
-    else
-      quant_log "no GitHub Release asset for $latest; building $bin from git tag"
-      checkout="$QUANT_CACHE_DIR/src-$bin"
-      quant_clone_tag "$latest" "$checkout"
-      bin_dir="$(quant_build_from_checkout "$checkout" "$c")"
-      quant_stage_bins_from_dir "$bin_dir" "$STAGE_BIN" "$c"
-      if [[ -d "$checkout/configs" ]]; then
-        CONFIG_SRC="$checkout/configs"
-      fi
-    fi
+    quant_install_one_component_narrated "$i" "$total" "$c" "$latest" "$PREFIX" "$WORKDIR"
   done
+  GIT_BINS_PLACED=1
 }
 
 resolve_local() {
@@ -302,7 +283,9 @@ has_component() {
   return 1
 }
 
-if [[ "$DRY_RUN" != "1" || -d "$STAGE_BIN" ]]; then
+if [[ "$GIT_BINS_PLACED" == "1" ]]; then
+  : # binaries already placed by quant_install_one_component_narrated (or noop upgrade)
+elif [[ "$DRY_RUN" != "1" || -d "$STAGE_BIN" ]]; then
   local_c=""
   for local_c in "${COMPONENTS[@]}"; do
     bin="$(quant_bin_for_component "$local_c")"

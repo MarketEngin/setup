@@ -254,10 +254,17 @@ quant_github_api_releases() {
   echo "https://api.github.com/repos/${or}/releases/tags"
 }
 
-# curl/wget with optional GitHub auth. Pass "asset" as 3rd arg for octet-stream asset download.
+# curl/wget with optional GitHub auth. Pass "asset" as 3rd arg for octet-stream.
+# Set QUANT_DOWNLOAD_PROGRESS=1 (or leave auto on TTY stderr) for a progress bar.
 quant_download() {
   local url="$1" dest="$2" mode="${3:-}"
   local -a hdr=()
+  local progress=0
+  if [[ "${QUANT_DOWNLOAD_PROGRESS:-}" == "1" ]]; then
+    progress=1
+  elif [[ "${QUANT_DOWNLOAD_PROGRESS:-}" != "0" && -t 2 ]]; then
+    progress=1
+  fi
   if quant_have_github_token && [[ "$url" == *github* ]]; then
     hdr+=(-H "Authorization: Bearer ${QUANT_GITHUB_TOKEN}")
     hdr+=(-H "X-GitHub-Api-Version: 2022-11-28")
@@ -268,7 +275,13 @@ quant_download() {
     fi
   fi
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "${hdr[@]}" -o "$dest" -L "$url"
+    if [[ "$progress" == "1" ]]; then
+      curl -fL --connect-timeout 15 --max-time 600 --progress-bar \
+        "${hdr[@]}" -o "$dest" -L "$url"
+    else
+      curl -fsSL --connect-timeout 15 --max-time 600 \
+        "${hdr[@]}" -o "$dest" -L "$url"
+    fi
   elif command -v wget >/dev/null 2>&1; then
     if quant_have_github_token && [[ "$url" == *github* ]]; then
       if [[ "$mode" == "asset" ]]; then
@@ -342,7 +355,6 @@ PY
       )"
       rm -f "$json"
       if [[ -n "${asset_api_url:-}" ]]; then
-        quant_log "downloading $asset_name from release $tag (auth=$(quant_have_github_token && echo yes || echo no))"
         if quant_have_github_token; then
           quant_download "$asset_api_url" "$archive" asset
         else
@@ -719,6 +731,67 @@ quant_restart_captures() {
     systemctl restart "$u" || true
     quant_log "restarted $u"
   done < <(systemctl list-units --type=service --state=running --no-legend 'quant-tape-capture@*.service' 2>/dev/null | awk '{print $1}')
+}
+
+quant_step() {
+  # quant_step INDEX TOTAL MESSAGE
+  printf '◆ [%s/%s] %s\n' "$1" "$2" "$3" >&2
+}
+
+# Emit plan lines: component|action|installed_or_-|latest_tag
+# action = install | upgrade | skip
+# Usage: quant_emit_install_plan CHANNEL UPGRADE_FLAG PREFIX tags_blob components...
+quant_emit_install_plan() {
+  local channel="$1" upgrade="$2" prefix="$3" tags="$4"
+  shift 4
+  local c bin latest installed
+  for c in "$@"; do
+    bin="$(quant_bin_for_component "$c")"
+    latest="$(printf '%s\n' "$tags" | quant_pick_latest_tag "$channel" "$bin")" \
+      || quant_die "no $channel tags for $bin (want ${bin}-vX.Y.Z or ${bin}-vX.Y.Z-devN)"
+    installed="$(quant_read_installed_component_tag "$prefix" "$c" 2>/dev/null || true)"
+    if [[ "$upgrade" == "1" ]]; then
+      if [[ -n "$installed" ]] \
+        && quant_tag_matches_channel "$installed" "$channel" "$bin" \
+        && ! quant_version_gt "$latest" "$installed"; then
+        printf '%s|skip|%s|%s\n' "$c" "$installed" "$latest"
+      elif [[ -n "$installed" ]]; then
+        printf '%s|upgrade|%s|%s\n' "$c" "$installed" "$latest"
+      else
+        printf '%s|install|-|%s\n' "$c" "$latest"
+      fi
+    else
+      printf '%s|install|%s|%s\n' "$c" "${installed:--}" "$latest"
+    fi
+  done
+}
+
+# Download + extract + atomic-install one component. Narrates each sub-step.
+# Args: index total component tag prefix workdir
+quant_install_one_component_narrated() {
+  local idx="$1" total="$2" c="$3" tag="$4" prefix="$5" workdir="$6"
+  local bin archive extract_dir bin_dir asset_name
+  bin="$(quant_bin_for_component "$c")"
+  asset_name="$(quant_asset_name_for_bin "$bin")"
+  mkdir -p "$workdir/fetch/$bin" "$workdir/extract/$bin"
+
+  quant_step "$idx" "$total" "$bin — downloading $tag ($asset_name)"
+  QUANT_DOWNLOAD_PROGRESS=1
+  export QUANT_DOWNLOAD_PROGRESS
+  if ! archive="$(quant_fetch_release_asset "$tag" "$workdir/fetch/$bin")"; then
+    QUANT_DOWNLOAD_PROGRESS=0
+    quant_die "no GitHub Release asset for $tag ($asset_name). Publish the release first."
+  fi
+  QUANT_DOWNLOAD_PROGRESS=0
+
+  printf '◆ extracting…\n' >&2
+  quant_extract_archive "$archive" "$workdir/extract/$bin"
+  bin_dir="$(quant_find_bin_dir "$workdir/extract/$bin" "$bin")" \
+    || quant_die "archive for $tag missing binary $bin"
+
+  printf '◆ installing → %s/bin/%s\n' "$prefix" "$bin" >&2
+  quant_atomic_install_bin "$bin_dir/$bin" "$prefix/bin/$bin"
+  printf '✓ %s done (%s)\n' "$bin" "$tag" >&2
 }
 
 # Self-test for version helpers (no network).
