@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Unified quant stack installer / upgrader.
 #
-# Per-app GitHub Releases on MarketEngin:
+#   curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh | sudo bash -s -- --components all
+#
+# Per-app GitHub Releases on MarketEngin/MarketEngin:
 #   tag   {bin}-vX.Y.Z  |  {bin}-vX.Y.Z-devN
 #   asset {bin}-linux-amd64.tar.gz
 #
@@ -10,7 +12,10 @@
 #   sudo ./install.sh --upgrade --channel stable --components sessionizer,quant
 #   sudo ./install.sh --source local --bin-src ./target/release --components quant,lens
 #
-# Env: PREFIX DATA_DIR QUANT_GIT_URL QUANT_GITHUB_TOKEN|GITHUB_TOKEN
+# Env: PREFIX DATA_DIR
+#      QUANT_GIT_URL=https://github.com/MarketEngin/MarketEngin.git
+#      QUANT_SETUP_URL=https://github.com/MarketEngin/setup
+#      QUANT_GITHUB_TOKEN|GITHUB_TOKEN
 #      BIN_SRC ENABLE DRY_RUN=1
 
 set -euo pipefail

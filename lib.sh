@@ -4,7 +4,8 @@
 
 set -euo pipefail
 
-# Source repo that publishes per-app GitHub Releases / tags.
+# Installer repo (this project) and release source (binaries).
+: "${QUANT_SETUP_URL:=https://github.com/MarketEngin/setup}"
 : "${QUANT_GIT_URL:=https://github.com/MarketEngin/MarketEngin.git}"
 
 # Private GitHub: QUANT_GITHUB_TOKEN or GITHUB_TOKEN (never commit; chmod 600 env file).

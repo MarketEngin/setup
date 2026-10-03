@@ -1,7 +1,9 @@
-# Quant stack setup (installer)
+# Quant stack setup
 
-Component-selectable install/upgrade. Downloads **per-app** GitHub Releases
-from [`MarketEngin/MarketEngin`](https://github.com/MarketEngin/MarketEngin).
+Repos: [MarketEngin/setup](https://github.com/MarketEngin/setup)  
+Release binaries: [MarketEngin/MarketEngin](https://github.com/MarketEngin/MarketEngin)
+
+Installs to:
 
 ```text
 /opt/quant/bin/{tape-capture,tape-sessionizer,quant,tape-lens,tape-verify}
@@ -9,8 +11,45 @@ from [`MarketEngin/MarketEngin`](https://github.com/MarketEngin/MarketEngin).
 /var/lib/quant/{capture,sessions}
 ```
 
-Systemd templates ship in this repo (`systemd/`). Instances are enabled by
-`quant -f … up -d`, not by the installer alone.
+## Quick install (no clone)
+
+One command on a Linux host with `curl` + `sudo` — downloads this installer
+and runs it (same idea as rustup / docker install scripts):
+
+```bash
+# Stable (all components)
+curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh \
+  | sudo bash -s -- --components all --channel stable
+```
+
+```bash
+# Pre-release channel
+curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh \
+  | sudo bash -s -- --components all --channel pre-release
+```
+
+```bash
+# Private MarketEngin releases — pass a token through
+export QUANT_GITHUB_TOKEN=ghp_…   # Contents read on MarketEngin/MarketEngin
+curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh \
+  | sudo -E bash -s -- --components all --channel stable
+```
+
+```bash
+# Upgrade only what is newer
+curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh \
+  | sudo -E bash -s -- --upgrade --channel stable --components sessionizer,quant
+```
+
+`get.sh` pulls the setup tree for ref `main` (override with `QUANT_SETUP_REF`),
+then runs `install.sh` with your flags. Defaults:
+
+| Env | Default |
+|-----|---------|
+| `QUANT_SETUP_URL` | `https://github.com/MarketEngin/setup` |
+| `QUANT_SETUP_REF` | `main` |
+| `QUANT_GIT_URL` | `https://github.com/MarketEngin/MarketEngin.git` |
+| `QUANT_GITHUB_TOKEN` / `GITHUB_TOKEN` | (optional; needed if MarketEngin is private) |
 
 ## Components
 
@@ -34,46 +73,49 @@ Each component resolves its **own** latest tag on the channel and downloads that
 release’s asset. `--upgrade` skips a component when the installed tag (from
 `manifest.json`) is already ≥ latest.
 
-## Private GitHub
+## Install from a local checkout
 
 ```bash
-export QUANT_GIT_URL=https://github.com/MarketEngin/MarketEngin.git
-export QUANT_GITHUB_TOKEN=ghp_…   # Contents + metadata read (releases/assets)
-
+git clone https://github.com/MarketEngin/setup.git
+cd setup
 sudo -E ./install.sh --components all --channel stable
-sudo -E ./install.sh --components all --channel pre-release
 ```
 
-## Install
-
 ```bash
-# From GitHub Releases (default)
-sudo -E ./install.sh --components all --channel stable
-
-# Upgrade only components that have a newer tag
-sudo -E ./install.sh --upgrade --channel stable --components sessionizer,quant
-
-# Local binaries
+# Local binaries instead of GitHub Releases
 sudo ./install.sh --source local --bin-src /path/to/bins --components quant,lens
 
 # Dry-run
 DRY_RUN=1 ./install.sh --components all --channel pre-release --dry-run
 ```
 
-Env: `PREFIX` (`/opt/quant`), `DATA_DIR` (`/var/lib/quant`), `QUANT_GIT_URL`,
-`QUANT_GITHUB_TOKEN` / `GITHUB_TOKEN`, `BIN_SRC`, `ENABLE=1` + `--compose PATH`.
+Env: `PREFIX` (`/opt/quant`), `DATA_DIR` (`/var/lib/quant`), `BIN_SRC`,
+`ENABLE=1` + `--compose PATH`.
 
 Live configs are never overwritten. Binary replace is atomic.
 
-If a Release has no asset, installer falls back to `cargo build` from that git tag
-(needs Rust on the host).
+If a Release has no asset, installer falls back to `cargo build` from that git
+tag (needs Rust on the host).
+
+Systemd templates ship in `systemd/`. Instances are enabled by
+`quant -f … up -d`, not by the installer alone.
 
 ## Uninstall
 
 ```bash
-sudo ./uninstall.sh                 # interactive pick
-sudo ./uninstall.sh --components lens,verify
-sudo REMOVE_DATA=1 REMOVE_CONFIG=1 ./uninstall.sh --components all
+# From a checkout
+sudo ./uninstall.sh
+
+# Or one-liner (same bootstrap)
+curl -fsSL https://raw.githubusercontent.com/MarketEngin/setup/main/get.sh \
+  | sudo bash -s -- --help   # get always runs install.sh — use clone for uninstall
+```
+
+For uninstall, clone or download the repo once:
+
+```bash
+curl -fsSL https://codeload.github.com/MarketEngin/setup/tar.gz/refs/heads/main \
+  | tar xz && cd setup-main && sudo ./uninstall.sh
 ```
 
 ## Self-test
