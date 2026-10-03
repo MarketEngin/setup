@@ -1,0 +1,6 @@
+[Unit]
+Description=Quant tape stack for %i (capture + sessionizer)
+Wants=quant-tape-capture@%i.service quant-tape-session@%i.service
+
+[Install]
+WantedBy=multi-user.target

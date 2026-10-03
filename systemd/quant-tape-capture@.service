@@ -1,0 +1,27 @@
+[Unit]
+Description=Quant tape-capture for %i (venue → Capture WAL)
+After=network-online.target
+Wants=network-online.target
+PartOf=quant-tape@%i.target
+
+[Service]
+Type=simple
+# Instance overrides supply Environment / ExecStart / ExecStartPre.
+ExecStart=/usr/bin/false
+KillSignal=SIGTERM
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=120
+StartLimitBurst=5
+MemoryMax=2G
+LimitNOFILE=65536
+OOMScoreAdjust=-500
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=quant-tape-capture-%i
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=quant-tape@%i.target

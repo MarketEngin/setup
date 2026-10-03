@@ -1,0 +1,25 @@
+[Unit]
+Description=Quant tape-sessionizer for %i (Capture WAL → MENGTAPE)
+After=network-online.target
+Wants=network-online.target
+PartOf=quant-tape@%i.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/false
+KillSignal=SIGTERM
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=120
+StartLimitBurst=5
+MemoryMax=2G
+LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=quant-tape-session-%i
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=quant-tape@%i.target
