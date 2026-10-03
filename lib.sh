@@ -4,14 +4,18 @@
 
 set -euo pipefail
 
-# Placeholder — override with QUANT_GIT_URL=… until the real repo URL is set.
-: "${QUANT_GIT_URL:=https://github.com/example/quant-main-app.git}"
+# Source repo that publishes per-app GitHub Releases / tags.
+: "${QUANT_GIT_URL:=https://github.com/MarketEngin/MarketEngin.git}"
 
 # Private GitHub: QUANT_GITHUB_TOKEN or GITHUB_TOKEN (never commit; chmod 600 env file).
 : "${QUANT_GITHUB_TOKEN:=${GITHUB_TOKEN:-}}"
 
 QUANT_CACHE_DIR="${QUANT_CACHE_DIR:-/var/cache/quant}"
-QUANT_ASSET_NAME="${QUANT_ASSET_NAME:-quant-linux-amd64.tar.gz}"
+
+# Per-app release asset: {bin}-linux-amd64.tar.gz
+quant_asset_name_for_bin() {
+  echo "${1}-linux-amd64.tar.gz"
+}
 
 # True if token looks set (non-empty).
 quant_have_github_token() {
@@ -132,36 +136,54 @@ quant_prompt_channel() {
   esac
 }
 
-# Returns 0 if tag matches channel.
+# Strip {app}- prefix → vX.Y.Z[-devN] (or leave unchanged if already bare).
+quant_strip_app_tag_prefix() {
+  local tag="$1" bin
+  for bin in tape-capture tape-sessionizer quant tape-lens tape-verify; do
+    if [[ "$tag" == "${bin}-v"* ]]; then
+      echo "${tag#${bin}-}"
+      return 0
+    fi
+  done
+  echo "$tag"
+}
+
+# Returns 0 if tag matches channel for a given binary/app name.
+# Tags: {bin}-vX.Y.Z  |  {bin}-vX.Y.Z-devN  (also accepts bare v… for tests/legacy)
 quant_tag_matches_channel() {
-  local tag="$1" channel="$2"
+  local tag="$1" channel="$2" app="${3:-}"
+  local ver
+  if [[ -n "$app" ]]; then
+    [[ "$tag" == "${app}-"* ]] || return 1
+  fi
+  ver="$(quant_strip_app_tag_prefix "$tag")"
   case "$channel" in
     stable)
-      [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+      [[ "$ver" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
       ;;
     pre-release)
-      [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-dev[0-9]+$ ]]
+      [[ "$ver" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-dev[0-9]+$ ]]
       ;;
     *) return 1 ;;
   esac
 }
 
 # Print sort key: major minor patch [devN or -1 for stable]
-# Usage: quant_version_sort_key v1.2.3-dev10
+# Accepts bare v… or {app}-v…
 quant_version_sort_key() {
-  local tag="$1"
-  local maj min pat n
-  if [[ "$tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)-dev([0-9]+)$ ]]; then
+  local tag ver maj min pat n
+  tag="$1"
+  ver="$(quant_strip_app_tag_prefix "$tag")"
+  if [[ "$ver" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)-dev([0-9]+)$ ]]; then
     maj="${BASH_REMATCH[1]}"
     min="${BASH_REMATCH[2]}"
     pat="${BASH_REMATCH[3]}"
     n="${BASH_REMATCH[4]}"
     printf '%d %d %d %d\n' "$maj" "$min" "$pat" "$n"
-  elif [[ "$tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+  elif [[ "$ver" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
     maj="${BASH_REMATCH[1]}"
     min="${BASH_REMATCH[2]}"
     pat="${BASH_REMATCH[3]}"
-    # Stable: treat as "infinite" build so it doesn't collide with pre keys in mixed sorts
     printf '%d %d %d %d\n' "$maj" "$min" "$pat" -1
   else
     return 1
@@ -188,15 +210,17 @@ quant_version_gt() {
   [[ "$(quant_version_cmp "$1" "$2")" == "1" ]]
 }
 
-# Pick highest tag from stdin (one tag per line) for channel.
+# Pick highest tag from stdin for channel (optional app filter as $2).
+# Usage: … | quant_pick_latest_tag stable
+#        … | quant_pick_latest_tag pre-release tape-capture
 quant_pick_latest_tag() {
-  local channel="$1"
-  local tag best="" 
+  local channel="$1" app="${2:-}"
+  local tag best=""
   while IFS= read -r tag; do
     [[ -z "$tag" ]] && continue
-    tag="${tag##*/}"          # refs/tags/v1.0.0 → v1.0.0
-    tag="${tag%"^{}"}"        # peel annotated tag marker
-    quant_tag_matches_channel "$tag" "$channel" || continue
+    tag="${tag##*/}"
+    tag="${tag%"^{}"}"
+    quant_tag_matches_channel "$tag" "$channel" "$app" || continue
     if [[ -z "$best" ]]; then
       best="$tag"
       continue
@@ -262,21 +286,41 @@ quant_download() {
   fi
 }
 
-# Try download release asset for tag into dest dir; echo path to archive or return 1.
+# Infer binary name from {bin}-v… tag.
+quant_bin_from_tag() {
+  local tag="$1" bin
+  for bin in tape-capture tape-sessionizer quant tape-lens tape-verify; do
+    if [[ "$tag" == "${bin}-v"* ]]; then
+      echo "$bin"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Download release asset for tag into dest dir; echo path to archive or return 1.
+# Asset name defaults to {bin}-linux-amd64.tar.gz for app tags.
 quant_fetch_release_asset() {
-  local tag="$1" dest_dir="$2"
-  local api asset_api_url archive json use_api_asset=0
-  archive="$dest_dir/$QUANT_ASSET_NAME"
+  local tag="$1" dest_dir="$2" asset_name="${3:-}"
+  local api asset_api_url archive json use_api_asset=0 bin
+  if [[ -z "$asset_name" ]]; then
+    bin="$(quant_bin_from_tag "$tag" 2>/dev/null || true)"
+    if [[ -n "$bin" ]]; then
+      asset_name="$(quant_asset_name_for_bin "$bin")"
+    else
+      asset_name="quant-linux-amd64.tar.gz"
+    fi
+  fi
+  archive="$dest_dir/$asset_name"
 
   if api="$(quant_github_api_releases "$QUANT_GIT_URL")"; then
     json="$(mktemp)"
     if quant_download "${api}/${tag}" "$json" 2>/dev/null; then
-      # Prefer API asset URL when authenticated (private repos); else browser_download_url.
       if quant_have_github_token; then
         use_api_asset=1
       fi
       asset_api_url="$(
-        QUANT_USE_API="$use_api_asset" python3 - "$json" "$QUANT_ASSET_NAME" <<'PY' 2>/dev/null || true
+        QUANT_USE_API="$use_api_asset" python3 - "$json" "$asset_name" <<'PY' 2>/dev/null || true
 import json, os, sys
 data=json.load(open(sys.argv[1]))
 want=sys.argv[2]
@@ -297,7 +341,7 @@ PY
       )"
       rm -f "$json"
       if [[ -n "${asset_api_url:-}" ]]; then
-        quant_log "downloading release asset for $tag (auth=$(quant_have_github_token && echo yes || echo no))"
+        quant_log "downloading $asset_name from release $tag (auth=$(quant_have_github_token && echo yes || echo no))"
         if quant_have_github_token; then
           quant_download "$asset_api_url" "$archive" asset
         else
@@ -309,7 +353,7 @@ PY
     else
       rm -f "$json"
       if quant_have_github_token; then
-        quant_log "release API failed for $tag (token/scopes? need Contents+Metadata read)"
+        quant_log "release API failed for $tag (need a GitHub Release on that tag + token scopes)"
       fi
     fi
   fi
@@ -511,16 +555,19 @@ quant_sha256() {
   fi
 }
 
+# Write manifest. Remaining args: component names.
+# Optional parallel tags via QUANT_COMPONENT_TAG_<comp> env (e.g. QUANT_COMPONENT_TAG_capture=…).
+# Or pass as "comp=tag" entries mixed with bare component names.
 quant_write_manifest() {
   local prefix="$1" version="$2" channel="$3" source="$4" extra="$5"
   shift 5
-  local -a comps=("$@")
+  local -a specs=("$@")
   if [[ "${DRY_RUN:-0}" == "1" ]]; then
     quant_log "DRY-RUN write VERSION=$version manifest"
     return 0
   fi
   echo "$version" >"$prefix/VERSION"
-  local ts bin c sha line
+  local ts bin c sha tag envkey
   ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)"
   {
     echo "{"
@@ -530,8 +577,16 @@ quant_write_manifest() {
     echo "  \"extra\": \"$extra\","
     echo "  \"installed_at\": \"$ts\","
     echo "  \"components\": {"
-    local first=1
-    for c in "${comps[@]}"; do
+    local first=1 spec
+    for spec in "${specs[@]}"; do
+      if [[ "$spec" == *"="* ]]; then
+        c="${spec%%=*}"
+        tag="${spec#*=}"
+      else
+        c="$spec"
+        envkey="QUANT_COMPONENT_TAG_${c}"
+        tag="${!envkey:-}"
+      fi
       bin="$(quant_bin_for_component "$c")"
       if [[ -f "$prefix/bin/$bin" ]]; then
         sha="$(quant_sha256 "$prefix/bin/$bin")"
@@ -539,7 +594,7 @@ quant_write_manifest() {
         sha=""
       fi
       if ((first)); then first=0; else echo ","; fi
-      printf '    "%s": {"bin": "%s", "sha256": "%s"}' "$c" "$bin" "$sha"
+      printf '    "%s": {"bin": "%s", "tag": "%s", "sha256": "%s"}' "$c" "$bin" "$tag" "$sha"
     done
     echo
     echo "  }"
@@ -554,6 +609,24 @@ quant_read_installed_version() {
     return 0
   fi
   return 1
+}
+
+# Read installed tag for one component from manifest.json (empty if missing).
+quant_read_installed_component_tag() {
+  local prefix="$1" comp="$2"
+  local mf="$prefix/manifest.json"
+  [[ -f "$mf" ]] || return 1
+  command -v python3 >/dev/null 2>&1 || return 1
+  python3 - "$mf" "$comp" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+c = (data.get("components") or {}).get(sys.argv[2]) or {}
+tag = c.get("tag") or ""
+if tag:
+    print(tag)
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
 }
 
 quant_rewrite_config_paths() {
@@ -654,16 +727,28 @@ quant_lib_selftest() {
   ! quant_tag_matches_channel "v1.2.3-dev0" stable
   quant_tag_matches_channel "v1.2.3-dev0" pre-release
   ! quant_tag_matches_channel "v1.2.3" pre-release
+  quant_tag_matches_channel "tape-capture-v1.2.3" stable tape-capture
+  quant_tag_matches_channel "tape-capture-v1.2.3-dev0" pre-release tape-capture
+  ! quant_tag_matches_channel "quant-v1.2.3" stable tape-capture
+  [[ "$(quant_strip_app_tag_prefix tape-lens-v0.1.0-dev2)" == "v0.1.0-dev2" ]]
   [[ "$(quant_version_cmp v1.2.3 v1.2.10)" == "-1" ]]
-  [[ "$(quant_version_cmp v1.2.10 v1.2.3)" == "1" ]]
+  [[ "$(quant_version_cmp tape-capture-v1.2.10 tape-capture-v1.2.3)" == "1" ]]
   [[ "$(quant_version_cmp v1.2.3-dev0 v1.2.3-dev1)" == "-1" ]]
-  [[ "$(quant_version_cmp v1.2.3-dev10 v1.2.3-dev2)" == "1" ]]
+  [[ "$(quant_version_cmp tape-capture-v1.2.3-dev10 tape-capture-v1.2.3-dev2)" == "1" ]]
   [[ "$(quant_version_cmp v1.2.3-dev0 v1.2.3-dev0)" == "0" ]]
   local latest
   latest="$(printf '%s\n' v1.0.0 v1.2.3 v1.2.10 v2.0.0-dev0 | quant_pick_latest_tag stable)"
   [[ "$latest" == "v1.2.10" ]]
-  latest="$(printf '%s\n' v1.2.3-dev0 v1.2.3-dev10 v1.2.3-dev2 v1.3.0-dev0 | quant_pick_latest_tag pre-release)"
-  [[ "$latest" == "v1.3.0-dev0" ]]
+  latest="$(printf '%s\n' \
+    tape-capture-v1.0.0 tape-capture-v1.2.3 quant-v9.0.0 tape-capture-v1.2.10 \
+    | quant_pick_latest_tag stable tape-capture)"
+  [[ "$latest" == "tape-capture-v1.2.10" ]]
+  latest="$(printf '%s\n' \
+    tape-capture-v1.2.3-dev0 tape-capture-v1.2.3-dev10 tape-capture-v1.2.3-dev2 quant-v1.3.0-dev0 \
+    | quant_pick_latest_tag pre-release tape-capture)"
+  [[ "$latest" == "tape-capture-v1.2.3-dev10" ]]
+  [[ "$(quant_asset_name_for_bin quant)" == "quant-linux-amd64.tar.gz" ]]
+  [[ "$(quant_bin_from_tag tape-sessionizer-v1.0.0-dev0)" == "tape-sessionizer" ]]
   echo "quant_lib_selftest: ok"
 }
 

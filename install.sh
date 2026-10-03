@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Unified quant stack installer / upgrader.
 #
-#   sudo ./deploy/install.sh --components all
-#   sudo ./deploy/install.sh --channel pre-release --components all
-#   sudo ./deploy/install.sh --upgrade --channel stable --components sessionizer,quant
-#   sudo ./deploy/install.sh --source local --bin-src ./target/release --components quant,lens
-#   sudo ./deploy/install.sh --source url --url https://…/quant-linux-amd64.tar.gz --components all
+# Per-app GitHub Releases on MarketEngin:
+#   tag   {bin}-vX.Y.Z  |  {bin}-vX.Y.Z-devN
+#   asset {bin}-linux-amd64.tar.gz
+#
+#   sudo ./install.sh --components all
+#   sudo ./install.sh --channel pre-release --components all
+#   sudo ./install.sh --upgrade --channel stable --components sessionizer,quant
+#   sudo ./install.sh --source local --bin-src ./target/release --components quant,lens
 #
 # Env: PREFIX DATA_DIR QUANT_GIT_URL QUANT_GITHUB_TOKEN|GITHUB_TOKEN
 #      BIN_SRC ENABLE DRY_RUN=1
@@ -39,16 +42,20 @@ Usage: install.sh [options]
   --channel NAME      stable | pre-release (default: prompt / stable)
   --source MODE       git (default) | local | url
   --bin-src DIR       local binary directory (implies --source local)
-  --url URL           archive URL (implies --source url)
-  --upgrade           upgrade if newer version on channel (git); else no-op
+  --url URL           single archive URL (implies --source url)
+  --upgrade           per-component: install only if newer tag on channel
   --restart-sessionizer / --no-restart-sessionizer
   --restart-capture
   --compose PATH      with ENABLE=1, run: quant -f PATH up -d
   --dry-run
   -h, --help
 
-Env: PREFIX=/opt/quant DATA_DIR=/var/lib/quant QUANT_GIT_URL=…
-     QUANT_GITHUB_TOKEN|GITHUB_TOKEN  (private GitHub: Contents read)
+  git mode downloads each component's GitHub Release asset
+  ({bin}-linux-amd64.tar.gz) for the latest {bin}-v… tag on the channel.
+
+Env: PREFIX=/opt/quant DATA_DIR=/var/lib/quant
+     QUANT_GIT_URL=https://github.com/MarketEngin/MarketEngin.git
+     QUANT_GITHUB_TOKEN|GITHUB_TOKEN  (private: Contents + Releases read)
      BIN_SRC=… ENABLE=0|1
 EOF
 }
@@ -111,14 +118,10 @@ if [[ "$NEED_ROOT" == "1" && "$(id -u)" -ne 0 && "$PREFIX" == /opt/* ]]; then
   quant_die "run as root (sudo) to install under $PREFIX"
 fi
 
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-CONFIG_SRC="$REPO_ROOT/configs"
-UNIT_SRC="$REPO_ROOT/deploy/systemd"
-# Prefer templates next to examples shipped in deploy/systemd
-TEMPLATE_SRC="$UNIT_SRC"
-if [[ ! -f "$TEMPLATE_SRC/quant-tape@.target" ]]; then
-  TEMPLATE_SRC="$REPO_ROOT/tools/quant/src/adapters/supervisor/unit_templates"
-fi
+CONFIG_SRC="$SCRIPT_DIR/configs"
+TEMPLATE_SRC="$SCRIPT_DIR/systemd"
+[[ -f "$TEMPLATE_SRC/quant-tape@.target" ]] \
+  || quant_die "missing unit templates in $TEMPLATE_SRC"
 
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/quant-install.XXXXXX")"
 cleanup() { rm -rf "$WORKDIR"; }
@@ -129,68 +132,95 @@ mkdir -p "$STAGE_BIN"
 
 VERSION_STR=""
 SOURCE_EXTRA=""
+# Populated as "comp=tag" for manifest
+COMPONENT_SPECS=()
 
 resolve_git() {
   quant_log "listing tags from $QUANT_GIT_URL"
-  local tags latest
-  tags="$(quant_list_remote_tags "$QUANT_GIT_URL")" || quant_die "failed to list tags from $QUANT_GIT_URL"
-  latest="$(printf '%s\n' "$tags" | quant_pick_latest_tag "$CHANNEL")" \
-    || quant_die "no $CHANNEL tags found at $QUANT_GIT_URL (want vX.Y.Z or vX.Y.Z-devN)"
-  quant_log "latest $CHANNEL tag: $latest"
+  local tags
+  tags="$(quant_list_remote_tags "$QUANT_GIT_URL")" \
+    || quant_die "failed to list tags from $QUANT_GIT_URL"
 
-  if [[ "$UPGRADE" == "1" ]]; then
-    local installed=""
-    installed="$(quant_read_installed_version "$PREFIX" 2>/dev/null || true)"
-    if [[ -n "$installed" ]]; then
-      if ! quant_tag_matches_channel "$installed" "$CHANNEL"; then
-        quant_log "installed version $installed is other channel; will install $latest"
-      elif ! quant_version_gt "$latest" "$installed"; then
-        quant_log "No newer $CHANNEL version (installed=$installed, latest=$latest)"
-        exit 0
+  local -a to_install=()
+  local -a plan_tags=()
+  local c bin latest installed archive extract_dir bin_dir checkout
+
+  for c in "${COMPONENTS[@]}"; do
+    bin="$(quant_bin_for_component "$c")"
+    latest="$(printf '%s\n' "$tags" | quant_pick_latest_tag "$CHANNEL" "$bin")" \
+      || quant_die "no $CHANNEL tags for $bin (want ${bin}-vX.Y.Z or ${bin}-vX.Y.Z-devN)"
+
+    if [[ "$UPGRADE" == "1" ]]; then
+      installed="$(quant_read_installed_component_tag "$PREFIX" "$c" 2>/dev/null || true)"
+      if [[ -n "$installed" ]]; then
+        if ! quant_tag_matches_channel "$installed" "$CHANNEL" "$bin"; then
+          quant_log "$c: installed $installed is other channel → will install $latest"
+        elif ! quant_version_gt "$latest" "$installed"; then
+          quant_log "$c: already up to date ($installed)"
+          COMPONENT_SPECS+=("${c}=${installed}")
+          continue
+        else
+          quant_log "$c: upgrade $installed → $latest"
+        fi
       else
-        quant_log "upgrade $installed → $latest"
+        quant_log "$c: not installed → $latest"
       fi
+    else
+      quant_log "$c: latest $CHANNEL → $latest"
     fi
-  fi
 
-  VERSION_STR="$latest"
-  SOURCE_EXTRA="$QUANT_GIT_URL@$latest"
+    to_install+=("$c")
+    plan_tags+=("$latest")
+    COMPONENT_SPECS+=("${c}=${latest}")
+  done
 
-  local archive="" checkout="" bin_dir=""
-  mkdir -p "$WORKDIR/fetch"
-  if archive="$(quant_fetch_release_asset "$latest" "$WORKDIR/fetch")"; then
-    quant_extract_archive "$archive" "$WORKDIR/extract"
-    local -a need_bins=()
-    local c
-    for c in "${COMPONENTS[@]}"; do
-      need_bins+=("$(quant_bin_for_component "$c")")
-    done
-    bin_dir="$(quant_find_bin_dir "$WORKDIR/extract" "${need_bins[@]}")" \
-      || quant_die "archive missing required binaries: ${need_bins[*]}"
-    quant_stage_bins_from_dir "$bin_dir" "$STAGE_BIN" "${COMPONENTS[@]}"
-  else
-    quant_log "no release asset; building from git tag $latest"
-    checkout="$QUANT_CACHE_DIR/src"
+  if [[ ${#to_install[@]} -eq 0 ]]; then
+    quant_log "No newer $CHANNEL versions for selected components"
+    VERSION_STR="$(quant_read_installed_version "$PREFIX" 2>/dev/null || echo up-to-date)"
+    SOURCE_EXTRA="noop@$CHANNEL"
     if [[ "$DRY_RUN" == "1" ]]; then
-      quant_log "DRY-RUN would clone $latest and cargo build"
-      # Stage empty placeholders message only
       return 0
     fi
-    quant_clone_tag "$latest" "$checkout"
-    bin_dir="$(quant_build_from_checkout "$checkout" "${COMPONENTS[@]}")"
-    quant_stage_bins_from_dir "$bin_dir" "$STAGE_BIN" "${COMPONENTS[@]}"
-    # Config/examples from checkout when building from git
-    if [[ -d "$checkout/configs" ]]; then
-      CONFIG_SRC="$checkout/configs"
-    fi
-    if [[ -d "$checkout/deploy/systemd" ]]; then
-      TEMPLATE_SRC="$checkout/deploy/systemd"
-    fi
+    # Still refresh manifest timestamps for kept components
+    return 0
   fi
+
+  VERSION_STR="$(IFS=','; echo "${plan_tags[*]}")"
+  SOURCE_EXTRA="$QUANT_GIT_URL#$CHANNEL"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    quant_log "DRY-RUN would fetch: ${plan_tags[*]}"
+    return 0
+  fi
+
+  local i=0
+  for c in "${to_install[@]}"; do
+    latest="${plan_tags[$i]}"
+    i=$((i + 1))
+    bin="$(quant_bin_for_component "$c")"
+    mkdir -p "$WORKDIR/fetch/$bin" "$WORKDIR/extract/$bin"
+
+    if archive="$(quant_fetch_release_asset "$latest" "$WORKDIR/fetch/$bin")"; then
+      quant_extract_archive "$archive" "$WORKDIR/extract/$bin"
+      bin_dir="$(quant_find_bin_dir "$WORKDIR/extract/$bin" "$bin")" \
+        || quant_die "archive for $latest missing binary $bin"
+      quant_stage_bins_from_dir "$bin_dir" "$STAGE_BIN" "$c"
+    else
+      quant_log "no GitHub Release asset for $latest; building $bin from git tag"
+      checkout="$QUANT_CACHE_DIR/src-$bin"
+      quant_clone_tag "$latest" "$checkout"
+      bin_dir="$(quant_build_from_checkout "$checkout" "$c")"
+      quant_stage_bins_from_dir "$bin_dir" "$STAGE_BIN" "$c"
+      if [[ -d "$checkout/configs" ]]; then
+        CONFIG_SRC="$checkout/configs"
+      fi
+    fi
+  done
 }
 
 resolve_local() {
-  local dir="${BIN_SRC_OPT:-${BIN_SRC:-$REPO_ROOT/target/release}}"
+  local dir="${BIN_SRC_OPT:-${BIN_SRC:-}}"
+  [[ -n "$dir" ]] || quant_die "--bin-src or BIN_SRC required for --source local"
   [[ -d "$dir" ]] || quant_die "bin-src not a directory: $dir"
   VERSION_STR="local"
   if [[ -f "$dir/VERSION" ]]; then
@@ -200,7 +230,10 @@ resolve_local() {
   fi
   SOURCE_EXTRA="$dir"
   quant_stage_bins_from_dir "$dir" "$STAGE_BIN" "${COMPONENTS[@]}"
-  # Local mode: skip git version gate (always install)
+  local c
+  for c in "${COMPONENTS[@]}"; do
+    COMPONENT_SPECS+=("${c}=${VERSION_STR}")
+  done
 }
 
 resolve_url() {
@@ -232,6 +265,10 @@ resolve_url() {
   bin_dir="$(quant_find_bin_dir "$WORKDIR/extract" "${need_bins[@]}")" \
     || quant_die "archive missing required binaries: ${need_bins[*]}"
   quant_stage_bins_from_dir "$bin_dir" "$STAGE_BIN" "${COMPONENTS[@]}"
+  local c
+  for c in "${COMPONENTS[@]}"; do
+    COMPONENT_SPECS+=("${c}=${VERSION_STR}")
+  done
 }
 
 case "$SOURCE" in
@@ -269,6 +306,8 @@ if [[ "$DRY_RUN" != "1" || -d "$STAGE_BIN" ]]; then
       quant_log "installed $PREFIX/bin/$bin"
     elif [[ "$DRY_RUN" == "1" ]]; then
       quant_log "DRY-RUN would install $bin"
+    elif [[ "$UPGRADE" == "1" && -f "$PREFIX/bin/$bin" ]]; then
+      quant_log "kept existing $PREFIX/bin/$bin"
     else
       quant_die "staged binary missing: $STAGE_BIN/$bin"
     fi
@@ -349,7 +388,13 @@ if [[ "$DRY_RUN" != "1" ]]; then
   fi
 fi
 
-quant_write_manifest "$PREFIX" "${VERSION_STR:-unknown}" "$CHANNEL" "$SOURCE" "$SOURCE_EXTRA" "${COMPONENTS[@]}"
+if [[ ${#COMPONENT_SPECS[@]} -eq 0 ]]; then
+  for local_c in "${COMPONENTS[@]}"; do
+    COMPONENT_SPECS+=("${local_c}=${VERSION_STR:-unknown}")
+  done
+fi
+quant_write_manifest "$PREFIX" "${VERSION_STR:-unknown}" "$CHANNEL" "$SOURCE" "$SOURCE_EXTRA" \
+  "${COMPONENT_SPECS[@]}"
 
 if [[ "$UPGRADE" == "1" || "$RESTART_SESSIONIZER" == "1" ]]; then
   if has_component sessionizer && [[ "$RESTART_SESSIONIZER" == "1" ]]; then
