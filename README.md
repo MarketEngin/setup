@@ -83,20 +83,39 @@ sudo -E bash /tmp/me-get.sh
 
 Each component resolves its own latest tag and downloads that release asset.
 
-## Upgrade
+## Upgrade / reinstall
 
-Upgrade is **per component**, not one global VERSION:
+| Mode | Behavior |
+|------|----------|
+| **Install** | Download latest tag per selected app |
+| **Upgrade** | Skip apps whose installed tag (in `manifest.json`) is already ≥ latest on the channel |
+| **Reinstall** | Force re-download/install even when the tag matches |
 
-1. List remote tags on `QUANT_GIT_URL` for the chosen channel  
-2. Read installed tag from `$PREFIX/manifest.json` (`components.<name>.tag`)  
-3. If latest ≤ installed (same channel) → **skip** (no download)  
-4. If newer or missing → download that release asset with the same progress narration as install  
-5. Config files are never overwritten  
+Upgrade and reinstall never overwrite live config files.
 
-Interactive: choose **Upgrade** in the wizard (or pass `--upgrade`).  
-CI: `sudo ./install.sh --upgrade --channel stable --components sessionizer,quant`
+Interactive: choose the mode in the wizard (or `--upgrade` / `--reinstall`).  
+CI:
 
-If every selected app is already current, the installer exits with “up to date” and downloads nothing.
+```bash
+sudo ./install.sh --upgrade --channel stable --components sessionizer,quant
+sudo ./install.sh --reinstall --components all
+```
+
+If every selected app is already current on **upgrade**, nothing is downloaded; PATH links are still refreshed.
+
+## PATH
+
+Binaries live in `$PREFIX/bin` (default `/opt/quant/bin`) and are **symlinked into `/usr/local/bin`**, so `quant`, `tape-capture`, … work immediately.
+
+Also writes `/etc/profile.d/quant-path.sh` so new login shells include `$PREFIX/bin`.
+
+Already installed but `quant: command not found`? Re-run setup (Upgrade is enough — it refreshes links), or:
+
+```bash
+sudo ln -sfn /opt/quant/bin/quant /usr/local/bin/quant
+sudo ln -sfn /opt/quant/bin/tape-capture /usr/local/bin/tape-capture
+# …same for tape-sessionizer, tape-lens, tape-verify
+```
 
 ## Install from a local checkout
 

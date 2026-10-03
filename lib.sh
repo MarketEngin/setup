@@ -557,6 +557,92 @@ quant_atomic_install_bin() {
   mv -f "$tmp" "$dest"
 }
 
+# Where we put convenience symlinks so `quant` works without typing the full path.
+quant_path_link_dir() {
+  echo "${QUANT_PATH_LINK_DIR:-/usr/local/bin}"
+}
+
+# Symlink PREFIX/bin/<name> → /usr/local/bin/<name> (or QUANT_PATH_LINK_DIR).
+quant_link_bin() {
+  local dest_bin="$1"
+  local name
+  name="$(basename "$dest_bin")"
+  local link_dir
+  link_dir="$(quant_path_link_dir)"
+  if [[ "${DRY_RUN:-0}" == "1" ]]; then
+    quant_log "DRY-RUN link $link_dir/$name → $dest_bin"
+    return 0
+  fi
+  if [[ ! -d "$link_dir" ]]; then
+    if ! mkdir -p "$link_dir" 2>/dev/null; then
+      quant_log "warning: cannot create $link_dir — use: export PATH=\"$(dirname "$dest_bin"):\$PATH\""
+      return 0
+    fi
+  fi
+  if [[ -w "$link_dir" ]] || [[ "$(id -u)" -eq 0 ]]; then
+    ln -sfn "$dest_bin" "$link_dir/$name"
+    quant_log "linked $link_dir/$name → $dest_bin"
+  else
+    quant_log "warning: $link_dir not writable — use: export PATH=\"$(dirname "$dest_bin"):\$PATH\""
+  fi
+}
+
+# Remove symlink only if it points at our installed binary name under */bin/.
+quant_unlink_bin() {
+  local name="$1"
+  local prefix="${2:-}"
+  local link_dir link target
+  link_dir="$(quant_path_link_dir)"
+  link="$link_dir/$name"
+  [[ -L "$link" ]] || return 0
+  target="$(readlink "$link" 2>/dev/null || true)"
+  if [[ -n "$prefix" && "$target" == "$prefix/bin/$name" ]]; then
+    rm -f "$link"
+    return 0
+  fi
+  if [[ "$target" == */bin/"$name" ]]; then
+    rm -f "$link"
+  fi
+}
+
+# Ensure /etc/profile.d so new shells also see PREFIX/bin (in addition to symlinks).
+quant_ensure_path_profile() {
+  local prefix="$1"
+  local f="/etc/profile.d/quant-path.sh"
+  if [[ "${DRY_RUN:-0}" == "1" ]]; then
+    quant_log "DRY-RUN write $f"
+    return 0
+  fi
+  if [[ "$(id -u)" -eq 0 && -d /etc/profile.d ]]; then
+    cat >"$f" <<EOF
+# Managed by MarketEngin setup — do not edit by hand
+case ":\$PATH:" in
+  *:"$prefix/bin":*) ;;
+  *) export PATH="$prefix/bin:\$PATH" ;;
+esac
+EOF
+    chmod 644 "$f"
+    quant_log "wrote $f"
+  fi
+}
+
+quant_print_bin_howto() {
+  local prefix="$1"
+  shift
+  local c bin link_dir
+  link_dir="$(quant_path_link_dir)"
+  echo >&2
+  echo "Run commands (on PATH via $link_dir):" >&2
+  for c in "$@"; do
+    bin="$(quant_bin_for_component "$c" 2>/dev/null || true)"
+    [[ -n "$bin" ]] || continue
+    if [[ -x "$prefix/bin/$bin" ]]; then
+      echo "  $bin --help" >&2
+    fi
+  done
+  echo "Full path fallback: $prefix/bin/<name>" >&2
+}
+
 quant_sha256() {
   local f="$1"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -739,10 +825,11 @@ quant_step() {
 }
 
 # Emit plan lines: component|action|installed_or_-|latest_tag
-# action = install | upgrade | skip
-# Usage: quant_emit_install_plan CHANNEL UPGRADE_FLAG PREFIX tags_blob components...
+# action = install | upgrade | reinstall | skip
+# mode = install | upgrade | reinstall
+# Usage: quant_emit_install_plan CHANNEL MODE PREFIX tags_blob components...
 quant_emit_install_plan() {
-  local channel="$1" upgrade="$2" prefix="$3" tags="$4"
+  local channel="$1" mode="$2" prefix="$3" tags="$4"
   shift 4
   local c bin latest installed
   for c in "$@"; do
@@ -750,19 +837,30 @@ quant_emit_install_plan() {
     latest="$(printf '%s\n' "$tags" | quant_pick_latest_tag "$channel" "$bin")" \
       || quant_die "no $channel tags for $bin (want ${bin}-vX.Y.Z or ${bin}-vX.Y.Z-devN)"
     installed="$(quant_read_installed_component_tag "$prefix" "$c" 2>/dev/null || true)"
-    if [[ "$upgrade" == "1" ]]; then
-      if [[ -n "$installed" ]] \
-        && quant_tag_matches_channel "$installed" "$channel" "$bin" \
-        && ! quant_version_gt "$latest" "$installed"; then
-        printf '%s|skip|%s|%s\n' "$c" "$installed" "$latest"
-      elif [[ -n "$installed" ]]; then
-        printf '%s|upgrade|%s|%s\n' "$c" "$installed" "$latest"
-      else
-        printf '%s|install|-|%s\n' "$c" "$latest"
-      fi
-    else
-      printf '%s|install|%s|%s\n' "$c" "${installed:--}" "$latest"
-    fi
+    case "$mode" in
+      upgrade)
+        if [[ -n "$installed" ]] \
+          && quant_tag_matches_channel "$installed" "$channel" "$bin" \
+          && ! quant_version_gt "$latest" "$installed"; then
+          printf '%s|skip|%s|%s\n' "$c" "$installed" "$latest"
+        elif [[ -n "$installed" ]]; then
+          printf '%s|upgrade|%s|%s\n' "$c" "$installed" "$latest"
+        else
+          printf '%s|install|-|%s\n' "$c" "$latest"
+        fi
+        ;;
+      reinstall)
+        if [[ -n "$installed" ]]; then
+          printf '%s|reinstall|%s|%s\n' "$c" "$installed" "$latest"
+        else
+          printf '%s|install|-|%s\n' "$c" "$latest"
+        fi
+        ;;
+      *)
+        # install (fresh or overwrite latest)
+        printf '%s|install|%s|%s\n' "$c" "${installed:--}" "$latest"
+        ;;
+    esac
   done
 }
 
@@ -791,6 +889,7 @@ quant_install_one_component_narrated() {
 
   printf '◆ installing → %s/bin/%s\n' "$prefix" "$bin" >&2
   quant_atomic_install_bin "$bin_dir/$bin" "$prefix/bin/$bin"
+  quant_link_bin "$prefix/bin/$bin"
   printf '✓ %s done (%s)\n' "$bin" "$tag" >&2
 }
 

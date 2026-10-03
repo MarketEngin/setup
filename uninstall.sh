@@ -141,6 +141,7 @@ fi
 
 for c in "${COMPONENTS[@]}"; do
   bin="$(quant_bin_for_component "$c")"
+  quant_unlink_bin "$bin" "$PREFIX"
   rm -f "$PREFIX/bin/$bin"
   quant_log "removed $PREFIX/bin/$bin"
 done
@@ -170,6 +171,7 @@ if [[ ! -e "$PREFIX/bin/tape-capture" \
    && ! -e "$PREFIX/bin/tape-lens" \
    && ! -e "$PREFIX/bin/tape-verify" ]]; then
   rm -f "$PREFIX/VERSION" "$PREFIX/manifest.json" "$PREFIX/README.tape-record.md"
+  rm -f /etc/profile.d/quant-path.sh 2>/dev/null || true
 fi
 
 if [[ "$REMOVE_CONFIG" == "1" ]]; then

@@ -11,6 +11,7 @@
 #   sudo ./install.sh --components all
 #   sudo ./install.sh --channel pre-release --components all
 #   sudo ./install.sh --upgrade --channel stable --components sessionizer,quant
+#   sudo ./install.sh --reinstall --components all
 #   sudo ./install.sh --source local --bin-src ./target/release --components quant,lens
 #
 # Env: PREFIX DATA_DIR
@@ -36,6 +37,8 @@ SOURCE=""          # git|local|url (resolved)
 BIN_SRC_OPT=""
 URL_OPT=""
 UPGRADE=0
+REINSTALL=0
+MODE="install"
 RESTART_SESSIONIZER=1
 RESTART_CAPTURE=0
 COMPOSE_PATH=""
@@ -50,6 +53,7 @@ Usage: install.sh [options]
   --bin-src DIR       local binary directory (implies --source local)
   --url URL           single archive URL (implies --source url)
   --upgrade           per-component: install only if newer tag on channel
+  --reinstall         force re-download/install even if tag matches
   --restart-sessionizer / --no-restart-sessionizer
   --restart-capture
   --compose PATH      with ENABLE=1, run: quant -f PATH up -d
@@ -58,6 +62,7 @@ Usage: install.sh [options]
 
   git mode downloads each component's GitHub Release asset
   ({bin}-linux-amd64.tar.gz) for the latest {bin}-v… tag on the channel.
+  Binaries are linked into /usr/local/bin so `quant` works on PATH.
 
 Env: PREFIX=/opt/quant DATA_DIR=/var/lib/quant
      QUANT_GIT_URL=https://github.com/MarketEngin/MarketEngin.git
@@ -73,7 +78,8 @@ while [[ $# -gt 0 ]]; do
     --source) SOURCE="${2:-}"; shift 2 ;;
     --bin-src) BIN_SRC_OPT="${2:-}"; SOURCE="${SOURCE:-local}"; shift 2 ;;
     --url) URL_OPT="${2:-}"; SOURCE="${SOURCE:-url}"; shift 2 ;;
-    --upgrade) UPGRADE=1; shift ;;
+    --upgrade) UPGRADE=1; MODE="upgrade"; shift ;;
+    --reinstall) REINSTALL=1; MODE="reinstall"; shift ;;
     --restart-sessionizer) RESTART_SESSIONIZER=1; shift ;;
     --no-restart-sessionizer) RESTART_SESSIONIZER=0; shift ;;
     --restart-capture) RESTART_CAPTURE=1; shift ;;
@@ -112,7 +118,18 @@ if [[ -z "$CHANNEL" ]]; then
 fi
 CHANNEL="$(quant_normalize_channel "$CHANNEL")"
 
-quant_log "prefix=$PREFIX data=$DATA_DIR source=$SOURCE channel=$CHANNEL upgrade=$UPGRADE"
+if [[ "$REINSTALL" == "1" && "$UPGRADE" == "1" ]]; then
+  quant_die "use either --upgrade or --reinstall, not both"
+fi
+if [[ "$REINSTALL" == "1" ]]; then
+  MODE="reinstall"
+elif [[ "$UPGRADE" == "1" ]]; then
+  MODE="upgrade"
+else
+  MODE="install"
+fi
+
+quant_log "prefix=$PREFIX data=$DATA_DIR source=$SOURCE channel=$CHANNEL mode=$MODE"
 quant_log "components: ${COMPONENTS[*]}"
 
 NEED_ROOT=0
@@ -153,7 +170,7 @@ resolve_git() {
   local line c action installed latest
   while IFS= read -r line; do
     [[ -n "$line" ]] && plan_lines+=("$line")
-  done < <(quant_emit_install_plan "$CHANNEL" "$UPGRADE" "$PREFIX" "$tags" "${COMPONENTS[@]}")
+  done < <(quant_emit_install_plan "$CHANNEL" "$MODE" "$PREFIX" "$tags" "${COMPONENTS[@]}")
 
   local -a to_install=()
   local -a plan_tags=()
@@ -166,6 +183,12 @@ resolve_git() {
         ;;
       upgrade)
         quant_log "$c: upgrade $installed → $latest"
+        to_install+=("$c")
+        plan_tags+=("$latest")
+        COMPONENT_SPECS+=("${c}=${latest}")
+        ;;
+      reinstall)
+        quant_log "$c: reinstall $installed → $latest"
         to_install+=("$c")
         plan_tags+=("$latest")
         COMPONENT_SPECS+=("${c}=${latest}")
@@ -284,23 +307,31 @@ has_component() {
 }
 
 if [[ "$GIT_BINS_PLACED" == "1" ]]; then
-  : # binaries already placed by quant_install_one_component_narrated (or noop upgrade)
+  # ensure PATH links for skipped (already current) components too
+  for local_c in "${COMPONENTS[@]}"; do
+    bin="$(quant_bin_for_component "$local_c")"
+    [[ -x "$PREFIX/bin/$bin" ]] && quant_link_bin "$PREFIX/bin/$bin"
+  done
 elif [[ "$DRY_RUN" != "1" || -d "$STAGE_BIN" ]]; then
   local_c=""
   for local_c in "${COMPONENTS[@]}"; do
     bin="$(quant_bin_for_component "$local_c")"
     if [[ -f "$STAGE_BIN/$bin" ]]; then
       quant_atomic_install_bin "$STAGE_BIN/$bin" "$PREFIX/bin/$bin"
+      quant_link_bin "$PREFIX/bin/$bin"
       quant_log "installed $PREFIX/bin/$bin"
     elif [[ "$DRY_RUN" == "1" ]]; then
       quant_log "DRY-RUN would install $bin"
     elif [[ "$UPGRADE" == "1" && -f "$PREFIX/bin/$bin" ]]; then
       quant_log "kept existing $PREFIX/bin/$bin"
+      quant_link_bin "$PREFIX/bin/$bin"
     else
       quant_die "staged binary missing: $STAGE_BIN/$bin"
     fi
   done
 fi
+
+quant_ensure_path_profile "$PREFIX"
 
 # Config examples + seed live configs
 install_example() {
@@ -404,6 +435,7 @@ if [[ "$ENABLE" == "1" && -n "$COMPOSE_PATH" ]] && has_component quant; then
 fi
 
 quant_log "done. version=${VERSION_STR:-unknown} → $PREFIX"
+quant_print_bin_howto "$PREFIX" "${COMPONENTS[@]}"
 if has_component quant; then
-  echo "Next: edit $PREFIX/config/quant.yml && $PREFIX/bin/quant -f $PREFIX/config/quant.yml up -d"
+  echo "Next: edit $PREFIX/config/quant.yml && quant -f $PREFIX/config/quant.yml up -d" >&2
 fi

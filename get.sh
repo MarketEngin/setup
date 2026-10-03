@@ -122,7 +122,7 @@ MarketEngin setup
 
 Flow: questions → plan (tags) → confirm → download each app with progress.
 
-Options: --components LIST --channel stable|pre-release --upgrade --uninstall
+Options: --components LIST --channel stable|pre-release --upgrade --reinstall --uninstall
          --prefix DIR --data-dir DIR --yes --dry-run -h
 EOF
 }
@@ -140,6 +140,7 @@ while [[ $# -gt 0 ]]; do
     --components) COMPONENTS_RAW="${2:-}"; shift 2 ;;
     --channel) CHANNEL="${2:-}"; shift 2 ;;
     --upgrade) MODE="upgrade"; shift ;;
+    --reinstall) MODE="reinstall"; shift ;;
     --uninstall) MODE="uninstall"; shift ;;
     --prefix) PREFIX="${2:-}"; shift 2 ;;
     --data-dir) DATA_DIR="${2:-}"; shift 2 ;;
@@ -171,11 +172,13 @@ if [[ "$INTERACTIVE" == "1" ]]; then
   TOTAL=5
   step 1 "$TOTAL" "What do you want to do?"
   echo "  ${C_BOLD}[1]${C_RESET} Install" >&2
-  echo "  ${C_BOLD}[2]${C_RESET} Upgrade   ${C_DIM}(only newer tags per app)${C_RESET}" >&2
-  echo "  ${C_BOLD}[3]${C_RESET} Uninstall" >&2
+  echo "  ${C_BOLD}[2]${C_RESET} Upgrade     ${C_DIM}(only newer tags per app)${C_RESET}" >&2
+  echo "  ${C_BOLD}[3]${C_RESET} Reinstall   ${C_DIM}(force re-download even if current)${C_RESET}" >&2
+  echo "  ${C_BOLD}[4]${C_RESET} Uninstall" >&2
   case "$(ask "Choice" "1")" in
     2) MODE="upgrade" ;;
-    3) MODE="uninstall" ;;
+    3) MODE="reinstall" ;;
+    4) MODE="uninstall" ;;
     *) MODE="install" ;;
   esac
   ok "mode → $MODE"
@@ -288,8 +291,11 @@ while IFS= read -r _c; do
 done < <(quant_parse_components "$COMPONENTS_RAW")
 [[ ${#COMPONENTS[@]} -gt 0 ]] || die "no components"
 
-UPGRADE_FLAG=0
-[[ "$MODE" == "upgrade" ]] && UPGRADE_FLAG=1
+PLAN_MODE="$MODE"
+case "$MODE" in
+  install|upgrade|reinstall) ;;
+  *) die "internal: bad mode $MODE" ;;
+esac
 
 # ── plan preview (metadata only: git ls-remote) ─────────────────────────────
 log "Resolving latest tags on $CHANNEL (metadata only)…"
@@ -299,7 +305,7 @@ TAGS="$(quant_list_remote_tags "$QUANT_GIT_URL")" \
 PLAN_LINES=()
 while IFS= read -r line; do
   [[ -n "$line" ]] && PLAN_LINES+=("$line")
-done < <(quant_emit_install_plan "$CHANNEL" "$UPGRADE_FLAG" "$PREFIX" "$TAGS" "${COMPONENTS[@]}")
+done < <(quant_emit_install_plan "$CHANNEL" "$PLAN_MODE" "$PREFIX" "$TAGS" "${COMPONENTS[@]}")
 
 echo >&2
 printf '%s──────────────────────────────────────────────────────────%s\n' "$C_DIM" "$C_RESET" >&2
@@ -316,6 +322,10 @@ for line in "${PLAN_LINES[@]}"; do
       printf '  %s%-12s%s  %supgrade%s  %s → %s\n' "$C_BOLD" "$bin" "$C_RESET" "$C_YELLOW" "$C_RESET" "$installed" "$latest" >&2
       NEED_WORK=1
       ;;
+    reinstall)
+      printf '  %s%-12s%s  %sreinstall%s  %s → %s\n' "$C_BOLD" "$bin" "$C_RESET" "$C_MAG" "$C_RESET" "$installed" "$latest" >&2
+      NEED_WORK=1
+      ;;
     install)
       printf '  %s%-12s%s  %sinstall%s  %s\n' "$C_BOLD" "$bin" "$C_RESET" "$C_GREEN" "$C_RESET" "$latest" >&2
       NEED_WORK=1
@@ -326,6 +336,13 @@ printf '%s───────────────────────�
 
 if [[ "$NEED_WORK" -eq 0 ]]; then
   ok "Nothing to download — everything is up to date."
+  # Still ensure PATH links for already-installed bins
+  for c in "${COMPONENTS[@]}"; do
+    bin="$(quant_bin_for_component "$c")"
+    [[ -x "$PREFIX/bin/$bin" ]] && quant_link_bin "$PREFIX/bin/$bin"
+  done
+  quant_ensure_path_profile "$PREFIX"
+  quant_print_bin_howto "$PREFIX" "${COMPONENTS[@]}"
   exit 0
 fi
 
@@ -358,6 +375,8 @@ for line in "${PLAN_LINES[@]}"; do
   IFS='|' read -r c action installed latest <<<"$line"
   if [[ "$action" == "skip" ]]; then
     COMPONENT_SPECS+=("${c}=${installed}")
+    bin="$(quant_bin_for_component "$c")"
+    [[ -x "$PREFIX/bin/$bin" ]] && quant_link_bin "$PREFIX/bin/$bin"
     continue
   fi
   IDX=$((IDX + 1))
@@ -381,15 +400,18 @@ VERSION_STR="$(printf '%s\n' "${COMPONENT_SPECS[@]}" | sed 's/^[^=]*=//' | awk '
 quant_write_manifest "$PREFIX" "$VERSION_STR" "$CHANNEL" "git" "$QUANT_GIT_URL#$CHANNEL" \
   "${COMPONENT_SPECS[@]}"
 
+quant_ensure_path_profile "$PREFIX"
+
 if [[ "$(id -u)" -eq 0 ]] && id -u quant >/dev/null 2>&1; then
   chown -R quant:quant "$PREFIX" "$DATA_DIR" 2>/dev/null || true
 fi
 
-if [[ "$UPGRADE_FLAG" == "1" ]]; then
+if [[ "$MODE" == "upgrade" || "$MODE" == "reinstall" ]]; then
   for c in "${COMPONENTS[@]}"; do
     [[ "$c" == "sessionizer" ]] && quant_restart_sessionizers
   done
 fi
 
 ok "All done."
-echo "Binaries: $PREFIX/bin" >&2
+quant_print_bin_howto "$PREFIX" "${COMPONENTS[@]}"
+echo "Binaries live in: $PREFIX/bin" >&2
