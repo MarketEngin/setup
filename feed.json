@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "products": [
+    {
+      "id": "laboratory",
+      "name": "Laboratory",
+      "kind": "desktop",
+      "channels": {
+        "stable": {
+          "tag": "laboratory-v0.1.0",
+          "artifacts": [
+            {
+              "os": "darwin",
+              "arch": "arm64",
+              "sha256": null,
+              "source": {
+                "type": "github_release",
+                "repo": "MarketEngin/MarketEngin",
+                "tag": "laboratory-v0.1.0",
+                "asset": "laboratory-darwin-arm64.tar.gz"
+              }
+            },
+            {
+              "os": "darwin",
+              "arch": "amd64",
+              "sha256": null,
+              "source": {
+                "type": "github_release",
+                "repo": "MarketEngin/MarketEngin",
+                "tag": "laboratory-v0.1.0",
+                "asset": "laboratory-darwin-amd64.tar.gz"
+              }
+            },
+            {
+              "os": "windows",
+              "arch": "amd64",
+              "sha256": null,
+              "source": {
+                "type": "github_release",
+                "repo": "MarketEngin/MarketEngin",
+                "tag": "laboratory-v0.1.0",
+                "asset": "laboratory-windows-amd64.zip"
+              }
+            },
+            {
+              "os": "linux",
+              "arch": "amd64",
+              "sha256": null,
+              "source": {
+                "type": "github_release",
+                "repo": "MarketEngin/MarketEngin",
+                "tag": "laboratory-v0.1.0",
+                "asset": "laboratory-linux-amd64.tar.gz"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
