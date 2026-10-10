@@ -132,14 +132,18 @@ sudo ./uninstall.sh
 
 One (Quant Hub) reads this file for the product catalog.
 
-**Channels** (object keys — the name *is* the identity):
+Each product lists **`versions[]`**. Identity for install / download is `versions[].code`
+(e.g. `v0.1.0-dev0`). GitHub release tags live only under `artifacts[].source.tag`.
 
-| Key | Meaning |
-|-----|---------|
-| `stable` | Production / GA |
-| `preview` | Pre-stable builds (dev / early access) |
+| Field | Meaning |
+|-------|---------|
+| `code` | Version identity (required, unique per product) |
+| `name` | Display label in the hub |
+| `channel` | Track: `stable` or `preview` (legacy: `develop`, `pre-release`) |
+| `description` / `releaseDate` | Optional metadata |
+| `artifacts` | Per-OS/arch packages + `sha256` + `source` |
 
-Any other channel key is rejected by the hub parser so unknown tracks stay visible in logs/errors. A product may publish one or both.
+Any other `channel` value is rejected by the hub parser. A product may publish many versions across one or both tracks.
 
 Optional `logo` URL (HTTPS) for the hub mark; host files under [`logos/`](logos/).
 
