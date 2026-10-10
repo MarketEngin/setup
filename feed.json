@@ -7,8 +7,8 @@
       "kind": "desktop",
       "logo": "https://raw.githubusercontent.com/MarketEngin/setup/main/logos/laboratory.png",
       "channels": {
-        "stable": {
-          "tag": "laboratory-v0.1.0",
+        "preview": {
+          "tag": "laboratory-v0.1.0-dev00",
           "artifacts": [
             {
               "os": "darwin",
@@ -16,7 +16,7 @@
               "sha256": null,
               "source": {
                 "type": "github_release",
-                "repo": "MarketEngin/MarketEngin",
+                "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0",
                 "asset": "laboratory-darwin-arm64.tar.gz"
               }
@@ -27,7 +27,7 @@
               "sha256": null,
               "source": {
                 "type": "github_release",
-                "repo": "MarketEngin/MarketEngin",
+                "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0",
                 "asset": "laboratory-darwin-amd64.tar.gz"
               }
@@ -38,7 +38,7 @@
               "sha256": null,
               "source": {
                 "type": "github_release",
-                "repo": "MarketEngin/MarketEngin",
+                "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0",
                 "asset": "laboratory-windows-amd64.zip"
               }
@@ -49,7 +49,7 @@
               "sha256": null,
               "source": {
                 "type": "github_release",
-                "repo": "MarketEngin/MarketEngin",
+                "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0",
                 "asset": "laboratory-linux-amd64.tar.gz"
               }
