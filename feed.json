@@ -5,6 +5,7 @@
       "id": "laboratory",
       "name": "Laboratory",
       "kind": "desktop",
+      "logo": "https://raw.githubusercontent.com/MarketEngin/setup/main/logos/laboratory.png",
       "channels": {
         "stable": {
           "tag": "laboratory-v0.1.0",

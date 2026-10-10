@@ -128,8 +128,25 @@ sudo ./uninstall.sh
 
 `install.sh` shares `lib.sh` with `get.sh` (same plan + narrated download path for `--source git`).
 
+## Hub catalog (`feed.json`)
+
+One (Quant Hub) reads this file for the product catalog. Each product may include an optional logo URL:
+
+```json
+{
+  "id": "laboratory",
+  "name": "Laboratory",
+  "kind": "desktop",
+  "logo": "https://raw.githubusercontent.com/MarketEngin/setup/main/logos/laboratory.png",
+  "channels": { }
+}
+```
+
+Host logo files under [`logos/`](logos/) and point `logo` at the raw GitHub URL (or any HTTPS image). Omit `logo` to use the hub’s default glyph.
+
 ## Self-test
 
 ```bash
 ./lib.sh --selftest
 ```
+
