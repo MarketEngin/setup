@@ -8,7 +8,7 @@
       "logo": "https://raw.githubusercontent.com/MarketEngin/setup/main/logos/laboratory.png",
       "channels": {
         "preview": {
-          "tag": "laboratory-v0.1.0-dev00",
+          "tag": "laboratory-v0.1.0-dev0",
           "artifacts": [
             {
               "os": "darwin",
