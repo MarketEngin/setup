@@ -130,19 +130,18 @@ sudo ./uninstall.sh
 
 ## Hub catalog (`feed.json`)
 
-One (Quant Hub) reads this file for the product catalog. Each product may include an optional logo URL:
+One (Quant Hub) reads this file for the product catalog.
 
-```json
-{
-  "id": "laboratory",
-  "name": "Laboratory",
-  "kind": "desktop",
-  "logo": "https://raw.githubusercontent.com/MarketEngin/setup/main/logos/laboratory.png",
-  "channels": { }
-}
-```
+**Channels** (object keys — the name *is* the identity):
 
-Host logo files under [`logos/`](logos/) and point `logo` at the raw GitHub URL (or any HTTPS image). Omit `logo` to use the hub’s default glyph.
+| Key | Meaning |
+|-----|---------|
+| `stable` | Production / GA |
+| `preview` | Pre-stable builds (dev / early access) |
+
+Any other channel key is rejected by the hub parser so unknown tracks stay visible in logs/errors. A product may publish one or both.
+
+Optional `logo` URL (HTTPS) for the hub mark; host files under [`logos/`](logos/).
 
 ## Self-test
 
