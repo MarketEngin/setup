@@ -22,7 +22,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0-dev0",
-                "asset": "laboratory-darwin-arm64.tar.gz"
+                "asset": "laboratory-macos-arm64-portable.tar.gz"
               }
             },
             {
@@ -33,7 +33,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0-dev0",
-                "asset": "laboratory-darwin-amd64.tar.gz"
+                "asset": "laboratory-macos-x64-portable.tar.gz"
               }
             },
             {
@@ -44,7 +44,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0-dev0",
-                "asset": "laboratory-windows-amd64.zip"
+                "asset": "laboratory-windows-x64-portable.zip"
               }
             },
             {
@@ -55,7 +55,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0-dev0",
-                "asset": "laboratory-linux-amd64.tar.gz"
+                "asset": "laboratory-linux-x64-portable.tar.gz"
               }
             }
           ]
@@ -75,7 +75,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0-dev1",
-                "asset": "laboratory-darwin-arm64.tar.gz"
+                "asset": "laboratory-macos-arm64-portable.tar.gz"
               }
             },
             {
@@ -86,7 +86,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0-dev1",
-                "asset": "laboratory-darwin-amd64.tar.gz"
+                "asset": "laboratory-macos-x64-portable.tar.gz"
               }
             },
             {
@@ -97,7 +97,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0-dev1",
-                "asset": "laboratory-windows-amd64.zip"
+                "asset": "laboratory-windows-x64-portable.zip"
               }
             },
             {
@@ -108,7 +108,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0-dev1",
-                "asset": "laboratory-linux-amd64.tar.gz"
+                "asset": "laboratory-linux-x64-portable.tar.gz"
               }
             }
           ]
@@ -128,7 +128,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0",
-                "asset": "laboratory-darwin-arm64.tar.gz"
+                "asset": "laboratory-macos-arm64-portable.tar.gz"
               }
             },
             {
@@ -139,7 +139,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0",
-                "asset": "laboratory-darwin-amd64.tar.gz"
+                "asset": "laboratory-macos-x64-portable.tar.gz"
               }
             },
             {
@@ -150,7 +150,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0",
-                "asset": "laboratory-windows-amd64.zip"
+                "asset": "laboratory-windows-x64-portable.zip"
               }
             },
             {
@@ -161,7 +161,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
                 "tag": "laboratory-v0.1.0",
-                "asset": "laboratory-linux-amd64.tar.gz"
+                "asset": "laboratory-linux-x64-portable.tar.gz"
               }
             }
           ]
@@ -188,7 +188,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-tape-recorder-tauri",
                 "tag": "tape-recorder-v0.1.0-dev0",
-                "asset": "tape-recorder-darwin-arm64.tar.gz"
+                "asset": "tape-recorder-macos-arm64-portable.tar.gz"
               }
             },
             {
@@ -199,7 +199,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-tape-recorder-tauri",
                 "tag": "tape-recorder-v0.1.0-dev0",
-                "asset": "tape-recorder-darwin-amd64.tar.gz"
+                "asset": "tape-recorder-macos-x64-portable.tar.gz"
               }
             },
             {
@@ -210,7 +210,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-tape-recorder-tauri",
                 "tag": "tape-recorder-v0.1.0-dev0",
-                "asset": "tape-recorder-windows-amd64.zip"
+                "asset": "tape-recorder-windows-x64-portable.zip"
               }
             },
             {
@@ -221,7 +221,7 @@
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-tape-recorder-tauri",
                 "tag": "tape-recorder-v0.1.0-dev0",
-                "asset": "tape-recorder-linux-amd64.tar.gz"
+                "asset": "tape-recorder-linux-x64-portable.tar.gz"
               }
             }
           ]
