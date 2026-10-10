@@ -17,7 +17,7 @@
               "source": {
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
-                "tag": "laboratory-v0.1.0",
+                "tag": "laboratory-v0.1.0-dev0",
                 "asset": "laboratory-darwin-arm64.tar.gz"
               }
             },
@@ -28,7 +28,7 @@
               "source": {
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
-                "tag": "laboratory-v0.1.0",
+                "tag": "laboratory-v0.1.0-dev0",
                 "asset": "laboratory-darwin-amd64.tar.gz"
               }
             },
@@ -39,7 +39,7 @@
               "source": {
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
-                "tag": "laboratory-v0.1.0",
+                "tag": "laboratory-v0.1.0-dev0",
                 "asset": "laboratory-windows-amd64.zip"
               }
             },
@@ -50,7 +50,7 @@
               "source": {
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
-                "tag": "laboratory-v0.1.0",
+                "tag": "laboratory-v0.1.0-dev0",
                 "asset": "laboratory-linux-amd64.tar.gz"
               }
             }
