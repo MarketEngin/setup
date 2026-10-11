@@ -70,7 +70,7 @@
             {
               "os": "darwin",
               "arch": "arm64",
-              "sha256": null,
+              "sha256": "d9761480dcee7cbbe72a45457ebf4bc188b13beafca7d6105c677ed7955c7a2c",
               "source": {
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
@@ -81,7 +81,7 @@
             {
               "os": "darwin",
               "arch": "amd64",
-              "sha256": null,
+              "sha256": "45e239c1183cb3c6e2b1bee243c38190fdd1779c422c1e63d08727e2fb113e5b",
               "source": {
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
@@ -92,7 +92,7 @@
             {
               "os": "windows",
               "arch": "amd64",
-              "sha256": null,
+              "sha256": "8e780dd7b81882bc8bb5f209bafba65fd3371a61b78337c127fdd5fadb3001ab",
               "source": {
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
@@ -103,7 +103,7 @@
             {
               "os": "linux",
               "arch": "amd64",
-              "sha256": null,
+              "sha256": "913c63c939b1ae5fbe5d5ec28e974b305141e405ed0cbb8f534e6be7948197ea",
               "source": {
                 "type": "github_release",
                 "repo": "MarketEngin/market-engine-laboratory-tauri",
